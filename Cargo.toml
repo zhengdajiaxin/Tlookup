@@ -1,0 +1,30 @@
+[package]
+name = "fri-lookup"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[features]
+default = []
+gpu-fft = ["dep:ark-bn254"]
+icicle-rust = [
+    "gpu-fft",
+    "dep:icicle-bn254",
+    "dep:icicle-core",
+    "dep:icicle-hash",
+    "dep:icicle-runtime",
+]
+
+[dependencies]
+ark-ff = "0.3.0"
+ark-bn254 = { version = "0.3.0", optional = true }
+ark-poly = "0.3.0"
+ark-std = "0.3.0"
+icicle-bn254 = { path = "third_party/icicle/wrappers/rust/icicle-curves/icicle-bn254", optional = true }
+icicle-core = { path = "third_party/icicle/wrappers/rust/icicle-core", optional = true }
+icicle-hash = { path = "third_party/icicle/wrappers/rust/icicle-hash", optional = true }
+icicle-runtime = { path = "third_party/icicle/wrappers/rust/icicle-runtime", optional = true }
+sha3 = "0.10.6"
+
+[dev-dependencies]
+ark-bn254 = "0.3.0"

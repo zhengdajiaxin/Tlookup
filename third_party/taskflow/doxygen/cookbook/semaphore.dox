@@ -1,0 +1,296 @@
+namespace tf {
+
+/** @page LimitTheMaximumConcurrency Limit the Maximum Concurrency
+
+This chapters discusses how to limit the maximum concurrency or parallelism
+of workers running inside tasks.
+
+@tableofcontents
+
+@section DefineASemaphore Define a Semaphore
+
+%Taskflow provides a mechanism, tf::Semaphore, for you to limit 
+the maximum concurrency in a section of tasks.
+You can let a task acquire/release one or multiple semaphores before/after 
+executing its work.
+A task can acquire and release a semaphore, 
+or just acquire or just release it. 
+A tf::Semaphore object starts with an initial count.
+As long as that count is above 0, tasks can acquire the semaphore and do
+their work.
+If the count is 0 or less, a task trying to acquire the semaphore will not run
+but goes to a waiting list of that semaphore.
+When the semaphore is released by another task, 
+it reschedules all tasks on that waiting list.
+
+@code{.cpp}
+tf::Executor executor(8);   // create an executor of 8 workers
+tf::Taskflow taskflow;
+tf::Semaphore semaphore(1); // create a semaphore with initial count 1
+
+int counter = 0;
+
+// create 1000 independent tasks in the taskflow
+for(size_t i=0; i<1000; i++) {
+  taskflow.emplace([&](tf::Runtime& rt){ 
+    rt.acquire(semaphore);
+    counter++;  // only one worker will increment the counter at any time
+    rt.release(semaphore);
+  });
+}
+
+executor.run(taskflow).wait();
+@endcode
+
+The above example creates 1000 tasks with no dependencies between them.
+Each task increments @c counter by one.
+Since this increment operation is protected by the semaphore initialized
+with a count of @c 1,
+no multiple workers will run this operation at the same time.
+In other words, the semaphore limits the parallelism of the 1000 tasks
+to 1.
+
+@attention
+It is your responsibility to ensure the semaphore stays alive during the 
+execution of tasks that acquire and release it. 
+The executor and taskflow do not manage lifetime of any semaphores.
+
+We can create a semaphore with a different count value, such as 3,
+to limit the parallelism of independent tasks to 3.
+
+@code{.cpp}
+tf::Executor executor(8);   // create an executor of 8 workers
+tf::Taskflow taskflow;
+
+tf::Semaphore semaphore(3); // create a semaphore with initial count 3
+
+// create a task that acquires and releases the semaphore
+taskflow.emplace([&](tf::Runtime& rt){ 
+  rt.acquire(semaphore);
+  std::cout << "A" << std::endl; 
+  rt.release(semaphore);
+});
+
+// create a task that acquires and releases the semaphore
+taskflow.emplace([&](tf::Runtime& rt){ 
+  rt.acquire(semaphore);
+  std::cout << "B" << std::endl; 
+  rt.release(semaphore);
+});
+
+// create a task that acquires and releases the semaphore
+taskflow.emplace([&](tf::Runtime& rt){ 
+  rt.acquire(semaphore);
+  std::cout << "C" << std::endl; 
+  rt.release(semaphore);
+});
+
+// create a task that acquires and releases the semaphore
+taskflow.emplace([&](tf::Runtime& rt){ 
+  rt.acquire(semaphore);
+  std::cout << "D" << std::endl; 
+  rt.release(semaphore);
+});
+
+// create a task that acquires and releases the semaphore
+taskflow.emplace([&](tf::Runtime& rt){ 
+  rt.acquire(semaphore);
+  std::cout << "E" << std::endl; 
+  rt.release(semaphore);
+});
+
+executor.run(taskflow).wait();
+@endcode
+
+@code{.shell-session}
+# One possible output: A, B, and C run concurrently, D and E run concurrently
+ABC
+ED
+@endcode
+
+
+<!-- You can use semaphores to limit the concurrency across different sections 
+of taskflow graphs.
+When you submit multiple taskflows to an executor, the executor view them 
+as a bag of dependent tasks.
+It does not matter which task in which taskflow graph acquires or releases 
+a semaphore.
+
+@code{.cpp}
+tf::Executor executor(8);   // create an executor of 8 workers
+tf::Taskflow taskflow1;
+tf::Taskflow taskflow2;
+
+tf::Semaphore semaphore(1); // create a semaphore with initial count 1
+
+taskflow1.emplace([](){std::cout << "task in taskflow1"; })
+         .acquire(semaphore)
+         .release(semaphore);
+
+taskflow2.emplace([](){std::cout << "task in taskflow2"; })
+         .acquire(semaphore)
+         .release(semaphore);
+
+executor.run(taskflow1);
+executor.run(taskflow2);
+executor.wait_for_all();
+@endcode
+
+The above examples creates one task from each taskflow and submits
+the two taskflows to the executor. 
+Again, under normal circumstances, the two tasks can run concurrently, 
+but the semaphore restricts one worker to run the two task sequentially 
+in arbitrary order.
+-->
+
+tf::Semaphore is also useful for limiting the maximum concurrency across
+multiple task groups.
+For instance, you can have one task acquire a semaphore and have another
+task release that semaphore to impose concurrency on different task groups.
+The following example serializes the execution of five pairs of tasks
+using a semaphore rather than explicit dependencies.
+
+@code{.cpp}
+tf::Executor executor(4);  // creates an executor of 4 workers
+tf::Taskflow taskflow;
+tf::Semaphore semaphore(1);
+
+int N = 5;
+int counter = 0;  // non-atomic integer counter
+
+for(int i=0; i<N; i++) {
+  tf::Task f = taskflow.emplace([&](tf::Runtime& rt){ 
+    rt.acquire(semaphore);
+    counter++; 
+  }).name("from-"s + std::to_string(i));
+
+  tf::Task t = taskflow.emplace([&](tf::Runtime& rt){ 
+    counter++; 
+    rt.release(semaphore);
+  }).name("to-"s + std::to_string(i));
+
+  f.precede(t);
+}
+
+executor.run(taskflow).wait();
+
+assert(counter == 2*N);
+@endcode
+
+@dotfile images/semaphore2.dot
+
+Without semaphores, each pair of tasks, e.g., <tt>from-0 -> to-0</tt>,
+will run independently and concurrently.
+However, the program forces each @c from task to acquire the semaphore 
+before running its work and not to release it until its paired @c to task 
+is done.
+This constraint forces each pair of tasks to run sequentially,
+while the order of which pair runs first is up to the scheduler.
+
+@section DefineAConflictGraph Define a Conflict Graph
+
+One important application of tf::Semaphore is <i>conflict-aware scheduling</i>
+using a conflict graph.
+A conflict graph is a @em undirected graph where each vertex represents a task and 
+each edge represents a conflict between a pair of tasks.
+When a task conflicts with another task, they cannot run together.
+Consider the conflict graph below,
+task @c A conflicts with task @c B and task @c C (and vice versa), meaning that
+@c A cannot run together with @c B and @c C whereas 
+@c B and @c C can run together.
+
+@dotfile images/semaphore3.dot
+
+We can create one semaphore of one concurrency for each edge in the conflict graph and 
+let the two tasks of that edge acquire the semaphore.
+This organization forces the two tasks to not run concurrently.
+
+@code{.cpp}
+tf::Executor executor;
+tf::Taskflow taskflow;
+
+tf::Semaphore conflict_AB(1);
+tf::Semaphore conflict_AC(1);
+
+// task A cannot run in parallel with task B and task C
+tf::Task A = taskflow.emplace([&](tf::Runtime& rt){ 
+  rt.acquire(conflict_AB, conflict_AC);
+  std::cout << "A" << std::endl; 
+  rt.release(conflict_AB, conflict_AC);
+});
+
+// task B cannot run in parallel with task A
+tf::Task B = taskflow.emplace([&](tf::Runtime& rt){ 
+  rt.acquire(conflict_AB);
+  std::cout << "B" << std::endl; 
+  rt.release(conflict_AB);
+});
+
+// task C cannot run in parallel with task A
+tf::Task C = taskflow.emplace([&](tf::Runtime& rt){ 
+  rt.acquire(conflict_AC);
+  std::cout << "C" << std::endl; 
+  rt.release(conflict_AC);
+});
+
+executor.run(taskflow).wait();
+@endcode
+
+@code{.shell-session}
+# One possible output: B and C run concurrently after A
+A
+BC
+@endcode
+
+@note
+tf::Runtime::acquire can acquire multiple semaphores at a time, similarly
+for tf::Runtime::release which can release multiple semaphores at a time.
+When acquiring a semaphore, the calling worker will @em corun until the semaphore
+is successfully acquired. This corun behavior allows us to avoid any deadlock
+that could possibly happen when using semaphores with other tasks.
+
+@section UseASemaphoreAcrossDifferentTasks Use a Semaphore across Different Tasks
+
+You can use tf::Semaphore across different types of tasks, such as async tasks, taskflow tasks,
+and your application code.
+tf::Semaphore does not impose any restriction on which task to use.
+  
+@code{.cpp}
+tf::Executor executor;
+tf::Taskflow taskflow1, taskflow2;
+
+int counter(0);
+size_t N = 2000;
+
+for(size_t i=0; i<N; i++) {
+  // acquire and release the semaphore from a task in taskflow1
+  taskflow1.emplace([&](tf::Runtime& rt){
+    rt.acquire(s);
+    counter++;
+    rt.release(s);
+  });
+  
+  // acquire and release the semaphore from a task in another taskflow2
+  taskflow2.emplace([&](tf::Runtime& rt){
+    rt.acquire(s);
+    counter++;
+    rt.release(s);
+  });
+  
+  // acquire and release the semaphore from an async task
+  executor.async([&](tf::Runtime& rt){
+    rt.acquire(s);
+    counter++;
+    rt.release(s);
+  });
+}
+
+executor.wait_for_all();
+assert(counter == 3*N);
+@endcode
+
+*/
+
+}
+
+
