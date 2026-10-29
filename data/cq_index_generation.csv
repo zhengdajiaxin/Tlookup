@@ -1,0 +1,5 @@
+table_size,index_gen_ms,index_bytes,source_sheet,source_row,corrected_fields
+32768,94763.430,6390018,Sheet1,21,
+65536,201000.138,12779778,Sheet1,35,
+131072,425701.203,25559298,Sheet1,72,
+262144,896207.359,51118338,Sheet1,91,
