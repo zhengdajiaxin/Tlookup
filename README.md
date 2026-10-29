@@ -176,3 +176,17 @@ Useful knobs:
 - `FRI_LOOKUP_ICICLE_DEVICE_ID=0`
 
 If `FRI_LOOKUP_LDE_BACKEND` is omitted, the code uses `auto`: ICICLE is selected only for `ark_bn254::Fr` dense LDE sizes at or above `FRI_LOOKUP_GPU_LDE_MIN_SIZE`. The scale experiment CSV reports `peak_memory_bytes` from Linux `VmHWM` when available.
+
+## Experimental Data
+
+The experimental performance data supplied for the TLookup paper are available in [data/README.md](data/README.md), which documents the original workbook, metrics, configurations, source-cell provenance, reproduction commands, and known data limitations.
+
+- [CQ baseline results](data/cq_results.csv)
+- [CQ index generation time and size](data/cq_index_generation.csv)
+- [TLookup CPU results](data/tlookup_cpu_results.csv)
+- [TLookup GPU results](data/tlookup_gpu_results.csv)
+- [Original experimental workbook](data/performance_results_128.xlsx)
+- [Author-confirmed corrections](data/author_corrections.csv)
+- [Data validation report](data/validation_report.md)
+
+The datasets preserve the workbook's stored numeric precision and apply only the explicitly documented author corrections. Both original workbooks remain unchanged; corrected CSV fields are identified per record. CQ index generation is recorded separately from TLookup preprocessing, and CPU/GPU records retain independent source locations. Regenerate the CSVs with `python3 scripts/export_benchmark_data.py`; verify existing exports without writing with `python3 scripts/export_benchmark_data.py --check`.

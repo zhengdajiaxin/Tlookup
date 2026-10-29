@@ -1,1 +1,8 @@
 target/
+
+data/author_corrections.csv
+data/performance_results_128.xlsx
+data/validation_results.csv
+data/性能测试结果.xlsx
+
+scripts/
